@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import joblib
 from io import BytesIO
+import numpy as np
 
 app = FastAPI()
 
@@ -14,7 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cargar modelo de regresión logística
 credit_model = None
 try:
     credit_model = joblib.load("model/credit_model.pkl")
@@ -54,22 +54,21 @@ async def predict_excel(file: UploadFile = File(...)):
 
     try:
         probs = credit_model.predict_proba(df[required_cols])[:, 1]
-        results = []
-        for i, p in enumerate(probs):
-            prob_default = round(float(p), 4)
-            porcentaje = prob_default * 100
-            if porcentaje >= 60:
-                recomendacion = "❌ No recomendable"
-            elif porcentaje >= 30:
-                recomendacion = "⚠️ Riesgo medio"
-            else:
-                recomendacion = "✅ Recomendable"
+        
+        recom_labels = np.array(["✅ Recomendable", "⚠️ Riesgo medio", "❌ No recomendable"])
+        porc = probs * 100
+        indices = np.floor(porc / 30).astype(int)
+        indices = np.clip(indices, 0, 2)
+        recomendaciones = recom_labels[indices]
 
-            results.append({
+        results = [
+            {
                 "index": i,
-                "probabilidad_default": prob_default,
-                "recomendacion": recomendacion
-            })
+                "probabilidad_default": round(float(p), 4),
+                "recomendacion": rec
+            }
+            for i, (p, rec) in enumerate(zip(probs, recomendaciones))
+        ]
     except Exception as e:
         print("Error al predecir:", e)
         raise HTTPException(status_code=500, detail=f"Error al predecir: {str(e)}")
